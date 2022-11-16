@@ -219,7 +219,7 @@ void arm_biquad_cascade_df1_f32
 template<typename T>
 T getMin(QVector<T> data, int dataSize)
 {
-    int smallest_element_raw = data[0]; //let, first element is the smallest one
+    T smallest_element_raw = data[0]; //let, first element is the smallest one
     for(int i = 1; i < dataSize; i++)  //start iterating from the second element
     {
         if(data[i] < smallest_element_raw)
@@ -233,7 +233,7 @@ T getMin(QVector<T> data, int dataSize)
 template<typename T>
 T getMax(QVector<T> data, int dataSize)
 {
-    int largest_element_raw = data[0]; //also let, first element is the biggest one
+    T largest_element_raw = data[0]; //also let, first element is the biggest one
     for(int i = 1; i < dataSize; i++)  //start iterating from the second element
     {
         if(data[i] > largest_element_raw)
@@ -244,6 +244,18 @@ T getMax(QVector<T> data, int dataSize)
     return largest_element_raw;
 }
 
+double getMax(double *data, int dataSize)
+{
+    double largest_element_raw = data[0]; //also let, first element is the biggest one
+    for(int i = 1; i < dataSize; i++)  //start iterating from the second element
+    {
+        if(data[i] > largest_element_raw)
+        {
+           largest_element_raw = data[i];
+        }
+    }
+    return largest_element_raw;
+}
 
 void arm_biquad_cascade_df1_init_f32
 (arm_biquad_casd_df1_inst_f32 * S, unsigned char numStages, float * pCoeffs, float * pState);
@@ -326,6 +338,11 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
 
+    mouse_hold = false;
+    connect(ui->canvas_impulse, SIGNAL(mouseMove(QMouseEvent*)), this, SLOT(slotMouseMove(QMouseEvent*)));
+    connect(ui->canvas_impulse, SIGNAL(mousePress(QMouseEvent*)), this, SLOT(slotMousePress(QMouseEvent*)));
+    connect(ui->canvas_impulse, SIGNAL(mouseRelease(QMouseEvent*)), this, SLOT(slotMouseRelease(QMouseEvent*)));
+
     arm_biquad_cascade_df1_init_f32(&S, N,(float*)coaf, state);
     on_pushButtonFilter_clicked();
 }
@@ -352,10 +369,11 @@ void MainWindow::plotGrapics()
 
     double* Input_spectre = new double[spectre_size];
     double* Output_spectre = new double[spectre_size];
+
     for(unsigned i = 0; i < spectre_size; i++)
     {
-        Input_spectre[0] = 0;
-        Output_spectre[0] = 0;
+        Input_spectre[i] = 0;
+        Output_spectre[i] = 0;
     }
 
     for(int i = 0; i < SAMPLE_COUNT; i++)
@@ -463,13 +481,152 @@ void MainWindow::plotGrapics()
     ui->canvas_impulse->setInteraction(QCP::iRangeZoom, true);
 }
 
+unsigned magnitudeCounter = 1;
+
+void MainWindow::plotMagnitudeResponse()
+{
+    int SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
+    ui->horizontalSlider->setMaximum(SAMPLE_COUNT);
+    float* bufferDestination = new float[SAMPLE_COUNT];
+    float* bufferSource = new float[SAMPLE_COUNT];
+    const int sineFreq = magnitudeCounter++;
+
+    unsigned spectre_size = log(SAMPLE_COUNT)/log(2);
+        spectre_size = pow(2, ++spectre_size);
+
+    double* Input_spectre = new double[spectre_size];
+    double* Output_spectre = new double[spectre_size];
+
+    for(unsigned i = 0; i < spectre_size; i++)
+    {
+        Input_spectre[i] = 0;
+        Output_spectre[i] = 0;
+    }
+
+    for(int i = 0; i < SAMPLE_COUNT; i++)
+    {
+        bufferSource[i] = qSin(2 * M_PI * i * sineFreq / SAMPLE_COUNT);
+    }
+
+    arm_biquad_cascade_df1_f32(&S, bufferSource, bufferDestination, SAMPLE_COUNT);
+
+    for(int i = 0; i < SAMPLE_COUNT; i++)
+    {
+        Input_spectre[i] = bufferDestination[i];
+    }
+
+    FFTAnalysis(Input_spectre, Output_spectre, spectre_size, spectre_size);
+
+    double magnitudeMaximum = getMax(Output_spectre, spectre_size);
+    magnitudeResponseMaximumes.push_back(magnitudeMaximum);
+
+    delete[] Input_spectre;
+    delete[] Output_spectre;
+    delete[] bufferSource;
+    delete[] bufferDestination;
+
+}
+
 void MainWindow::on_pushButtonFilter_clicked()
 {
-    plotGrapics();
+    if(ui->checkBox_magnutideResponse->isChecked())
+    {
+        magnitudeCounter = 1;
+        QVector<double> x_all;
+        const unsigned SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
+
+        while(magnitudeCounter < SAMPLE_COUNT / 2)
+        {
+            plotMagnitudeResponse();
+        }
+
+        for(int i = 0; i < magnitudeResponseMaximumes.size(); i++)
+        {
+            x_all.push_back(i+1);
+        }
+
+        QFont legendFont = font();
+        legendFont.setPointSize(8);
+
+        /* --------------------IMPULSE-------------------- */
+        ui->canvas_impulse->clearGraphs();
+        ui->canvas_impulse->xAxis->setRange(-100, SAMPLE_COUNT / 2 + 100);
+        ui->canvas_impulse->yAxis->setRange(-0.5, 1);
+
+        ui->canvas_impulse->xAxis->setAutoTickCount(15);
+        ui->canvas_impulse->yAxis->setAutoTickCount(20);
+
+        ui->canvas_impulse->legend->clear();
+        ui->canvas_impulse->legend->setVisible(true);
+        ui->canvas_impulse->legend->setFont(legendFont);
+        ui->canvas_impulse->legend->setBrush(QBrush(QColor(255,255,255,230)));
+
+        ui->canvas_impulse->xAxis->setLabel("Hz");
+        ui->canvas_impulse->yAxis->setLabel("Units");
+
+        ui->canvas_impulse->addGraph();
+        ui->canvas_impulse->graph(0)->setData(x_all, magnitudeResponseMaximumes);
+        ui->canvas_impulse->graph(0)->setName(QString("Spectrum of sine"));
+        ui->canvas_impulse->replot();
+
+        ui->canvas_impulse->setInteraction(QCP::iRangeDrag, true);
+        ui->canvas_impulse->setInteraction(QCP::iRangeZoom, true);
+
+        x_all.clear();
+        magnitudeResponseMaximumes.clear();
+    }
+    else
+    {
+        plotGrapics();
+    }
 }
 
 void MainWindow::on_horizontalSlider_valueChanged(int value)
 {
    ui->lineEdit_sineFreq->setText(QString("%1").arg(QString::number(value)));
    plotGrapics();
+}
+
+
+
+void MainWindow::slotMouseMove(QMouseEvent *event)
+{
+    if(mouse_hold)
+    {
+        QCPAxis* Haxis = ui->canvas_impulse->axisRect()->rangeDragAxis(Qt::Horizontal);
+        QCPAxis* Vaxis = ui->canvas_impulse->axisRect()->rangeDragAxis(Qt::Vertical);
+        double diff=0;
+        if(ui->canvas_impulse->xAxis->scaleType() == QCPAxis::stLinear)
+        {
+            diff = Haxis->pixelToCoord(mDragStart.x()) - Haxis->pixelToCoord(event->pos().x());
+            Haxis->setRange(DragStartHorzRange.lower+diff, DragStartHorzRange.upper-diff);
+        }
+        if(ui->canvas_impulse->yAxis->scaleType() == QCPAxis::stLinear)
+        {
+            diff = Vaxis->pixelToCoord(mDragStart.y()) - Vaxis->pixelToCoord(event->pos().y());
+            Vaxis->setRange(DragStartVertRange.lower+diff, DragStartVertRange.upper-diff);
+        }
+
+        ui->canvas_impulse->replot();
+    }
+}
+
+void MainWindow::slotMousePress(QMouseEvent *event)
+{
+    if(event->button() == Qt::RightButton)
+    {
+        setCursor(Qt::ClosedHandCursor);
+        mDragStart = event->pos();
+        mouse_hold = true;
+        DragStartHorzRange = ui->canvas_impulse->axisRect()->rangeDragAxis(Qt::Horizontal)->range();
+        DragStartVertRange = ui->canvas_impulse->axisRect()->rangeDragAxis(Qt::Vertical)->range();
+    }
+}
+
+void MainWindow::slotMouseRelease(QMouseEvent *event)
+{
+    if(event->button() == Qt::RightButton)
+    {
+        mouse_hold = false;
+    }
 }
