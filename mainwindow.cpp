@@ -13,6 +13,7 @@ typedef struct
 
 #define N 4
 
+/* NATIVE FILTER */
 //float coaf[5*N] = {
 //    -2.192418628271423750, 0.000000000000000000, 2.192418628271423750, +1.987056911885394460, -0.987106041330942929,
 //    -0.101505574010362101, 0.000000000000000000, 0.101505574010362101, +0.154870658096936065, -0.045701475093464263,
@@ -20,16 +21,24 @@ typedef struct
 //    -0.375225408105429370, 0.000000000000000000, 0.375225408105429370, +0.207072761974852609, -0.453302856232669915,
 //};
 
+/* UNKNOWN FILTER */
 //float coaf[5*N]={
 //     1.12796421E+00, 2.17021499E+00, 1.12796421E+00, 1.98860953E+00, -9.88675700E-01,
 //     1.12796421E+00, -2.25592822E+00, 1.12796421E+00, 1.06500021E+00, -3.83519397E-01,
 //     1.26058951E-01, 2.01750553E-01, 1.26058951E-01, 7.80095015E-01, -7.43266042E-01,
 //     1.26058951E-01, -2.52117780E-01, 1.26058951E-01, 1.99841009E+00, -9.98432752E-01,};
 
-float coaf[5*N]={ 1.03417331E+00, 1.96991496E+00, 1.03417331E+00, 1.98862045E+00, -9.88686679E-01,
-                  1.03417331E+00, -2.06834645E+00, 1.03417331E+00, 1.15577315E+00, -4.22240356E-01,
-                  1.17588826E-01, 1.77532018E-01, 1.17588826E-01, 9.38136820E-01, -7.55808691E-01,
-                  1.17588826E-01, -2.35177540E-01, 1.17588826E-01, 1.99841143E+00, -9.98434093E-01,};
+/* ALMOST GOOD BUT HIGH PULSATION */
+//float coaf[5*N]={ 1.03417331E+00, 1.96991496E+00, 1.03417331E+00, 1.98862045E+00, -9.88686679E-01,
+//                  1.03417331E+00, -2.06834645E+00, 1.03417331E+00, 1.15577315E+00, -4.22240356E-01,
+//                  1.17588826E-01, 1.77532018E-01, 1.17588826E-01, 9.38136820E-01, -7.55808691E-01,
+//                  1.17588826E-01, -2.35177540E-01, 1.17588826E-01, 1.99841143E+00, -9.98434093E-01,};
+
+float coaf[5*N] = {
+        +0.531780834207, +0.000000000000, -0.531780834207, +0.428517385653, -0.565171689545,
+        +0.531780834207, +0.000000000000, -0.531780834207, +1.997982496043, -0.997994558814,
+        +0.389249491976, +0.000000000000, -0.389249491976, +1.992478660913, -0.992497377577,
+        +0.389249491976, +0.000000000000, -0.389249491976, +0.524004684137, -0.130131715952,};
 
 float state[N*4];
 arm_biquad_casd_df1_inst_f32 S;
@@ -354,13 +363,13 @@ MainWindow::~MainWindow()
 
 void MainWindow::plotGrapics()
 {
-    int SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
+    int SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toDouble();
     ui->horizontalSlider->setMaximum(SAMPLE_COUNT);
 
     float* bufferDestination = new float[SAMPLE_COUNT];
     float* bufferSource = new float[SAMPLE_COUNT];
 
-    const int sineFreq = ui->lineEdit_sineFreq->text().toInt();
+    double sineFreq = ui->lineEdit_sineFreq->text().toDouble();
 
     unsigned spectre_size = log(SAMPLE_COUNT)/log(2);
         spectre_size = pow(2, ++spectre_size);
@@ -380,7 +389,6 @@ void MainWindow::plotGrapics()
     {
         bufferSource[i] = qSin(2 * M_PI * i * sineFreq / SAMPLE_COUNT);
     }
-
     arm_biquad_cascade_df1_f32(&S, bufferSource, bufferDestination, SAMPLE_COUNT);
 
     for(int i = 0; i < SAMPLE_COUNT; i++)
@@ -489,7 +497,7 @@ void MainWindow::plotMagnitudeResponse()
     ui->horizontalSlider->setMaximum(SAMPLE_COUNT);
     float* bufferDestination = new float[SAMPLE_COUNT];
     float* bufferSource = new float[SAMPLE_COUNT];
-    const int sineFreq = magnitudeCounter++;
+    double sineFreq = magnitudeCounter++;
 
     unsigned spectre_size = log(SAMPLE_COUNT)/log(2);
         spectre_size = pow(2, ++spectre_size);
@@ -532,7 +540,7 @@ void MainWindow::on_pushButtonFilter_clicked()
     if(ui->checkBox_magnutideResponse->isChecked())
     {
         magnitudeCounter = 1;
-        QVector<double> x_all;
+        QVector<double> x_all, x_3db, y_3db;
         const unsigned SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
 
         while(magnitudeCounter < SAMPLE_COUNT / 2)
@@ -540,9 +548,15 @@ void MainWindow::on_pushButtonFilter_clicked()
             plotMagnitudeResponse();
         }
 
+        double magnitudeMax = getMax(magnitudeResponseMaximumes, magnitudeResponseMaximumes.size());
+
+        qDebug() << magnitudeMax;
+
         for(int i = 0; i < magnitudeResponseMaximumes.size(); i++)
         {
             x_all.push_back(i+1);
+            x_3db.push_back(i);
+            y_3db.push_back(0.707 * magnitudeMax);
         }
 
         QFont legendFont = font();
@@ -567,6 +581,12 @@ void MainWindow::on_pushButtonFilter_clicked()
         ui->canvas_impulse->addGraph();
         ui->canvas_impulse->graph(0)->setData(x_all, magnitudeResponseMaximumes);
         ui->canvas_impulse->graph(0)->setName(QString("Spectrum of sine"));
+
+        ui->canvas_impulse->addGraph();
+        ui->canvas_impulse->graph(1)->setPen(QPen((QColor(255,0,0,150))));
+        ui->canvas_impulse->graph(1)->setData(x_3db, y_3db);
+        ui->canvas_impulse->graph(1)->setName(QString("-3 dB"));
+
         ui->canvas_impulse->replot();
 
         ui->canvas_impulse->setInteraction(QCP::iRangeDrag, true);
@@ -574,6 +594,8 @@ void MainWindow::on_pushButtonFilter_clicked()
 
         x_all.clear();
         magnitudeResponseMaximumes.clear();
+        x_3db.clear();
+        y_3db.clear();
     }
     else
     {
