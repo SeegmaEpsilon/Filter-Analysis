@@ -16,6 +16,8 @@ public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
+    void sweep(double f_start, double f_end, double interval, int n_steps);
+
 private slots:
     void on_pushButtonFilter_clicked();
 
@@ -30,6 +32,8 @@ private:
     void plotGrapics();
     void plotMagnitudeResponse();
     QVector<double> magnitudeResponseMaximumes;
+    QVector<double> sweepValues;
+    QVector<double> x_all, x_3db, y_3db;
 
     bool mouse_hold;
     QCPRange DragStartHorzRange;

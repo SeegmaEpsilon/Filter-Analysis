@@ -2,17 +2,6 @@
 #include "ui_mainwindow.h"
 #include "filter.h"
 #include "qcustomplot.h"
-
-
-typedef struct
-{
-  unsigned numStages;         /**< number of 2nd order stages in the filter.  Overall order is 2*numStages. */
-  float *pState;          /**< Points to the array of state coefficients.  The array is of length 4*numStages. */
-  float *pCoeffs;         /**< Points to the array of coefficients.  The array is of length 5*numStages. */
-} arm_biquad_casd_df1_inst_f32;
-
-#define N 4
-
 /* NATIVE FILTER */
 //float coaf[5*N] = {
 //    -2.192418628271423750, 0.000000000000000000, 2.192418628271423750, +1.987056911885394460, -0.987106041330942929,
@@ -34,11 +23,27 @@ typedef struct
 //                  1.17588826E-01, 1.77532018E-01, 1.17588826E-01, 9.38136820E-01, -7.55808691E-01,
 //                  1.17588826E-01, -2.35177540E-01, 1.17588826E-01, 1.99841143E+00, -9.98434093E-01,};
 
+typedef struct
+{
+  unsigned numStages;         /**< number of 2nd order stages in the filter.  Overall order is 2*numStages. */
+  float *pState;          /**< Points to the array of state coefficients.  The array is of length 4*numStages. */
+  float *pCoeffs;         /**< Points to the array of coefficients.  The array is of length 5*numStages. */
+} arm_biquad_casd_df1_inst_f32;
+
+#define N 10
+
 float coaf[5*N] = {
-        +0.531780834207, +0.000000000000, -0.531780834207, +0.428517385653, -0.565171689545,
-        +0.531780834207, +0.000000000000, -0.531780834207, +1.997982496043, -0.997994558814,
-        +0.389249491976, +0.000000000000, -0.389249491976, +1.992478660913, -0.992497377577,
-        +0.389249491976, +0.000000000000, -0.389249491976, +0.524004684137, -0.130131715952,};
+  +0.466130702185, +0.000000000000, -0.466130702185, +1.093487650431, -0.963409689322,
+  +0.466130702185, +0.000000000000, -0.466130702185, +1.999977686300, -0.999977928207,
+  +0.422508537540, +0.000000000000, -0.422508537540, +1.178427121117, -0.893306363478,
+  +0.422508537540, +0.000000000000, -0.422508537540, +1.999921389117, -0.999921684910,
+  +0.343789366023, +0.000000000000, -0.343789366023, +1.354288476075, -0.827899867908,
+  +0.343789366023, +0.000000000000, -0.343789366023, +1.999808871051, -0.999809333555,
+  +0.232050049640, +0.000000000000, -0.232050049640, +1.557102476250, -0.773298891409,
+  +0.232050049640, +0.000000000000, -0.232050049640, +1.999448839071, -0.999449899257,
+  +0.105034408654, +0.000000000000, -0.105034408654, +1.996949476254, -0.996954813773,
+  +0.105034408654, +0.000000000000, -0.105034408654, +1.698170578807, -0.742479595442
+};
 
 float state[N*4];
 arm_biquad_casd_df1_inst_f32 S;
@@ -71,7 +76,7 @@ void arm_biquad_cascade_df1_f32
   float b0, b1, b2, a1, a2;                  /*  Filter coefficients       */
   float Xn1, Xn2, Yn1, Yn2;                  /*  Filter pState variables   */
   float Xn;                                  /*  temporary input           */
-  unsigned sample, stage = S->numStages;         /*  loop counters             */
+  unsigned sample, stage = S->numStages;     /*  loop counters             */
 
   /* Run the below code for Cortex-M4 and Cortex-M3 */
   do
@@ -266,19 +271,27 @@ double getMax(double *data, int dataSize)
     return largest_element_raw;
 }
 
-void arm_biquad_cascade_df1_init_f32
-(arm_biquad_casd_df1_inst_f32 * S, unsigned char numStages, float * pCoeffs, float * pState);
+double getMin(double *data, int dataSize)
+{
+    double smallest_element_raw = data[0]; //let, first element is the smallest one
+    for(int i = 1; i < dataSize; i++)  //start iterating from the second element
+    {
+        if(data[i] < smallest_element_raw)
+        {
+           smallest_element_raw = data[i];
+        }
+    }
+    return smallest_element_raw;
+}
 
-void arm_biquad_cascade_df1_f32
-(const arm_biquad_casd_df1_inst_f32 * S, float * pSrc, float * pDst, unsigned blockSize);
-
-void sweep(double f_start, double f_end, double interval, int n_steps) {
+void MainWindow::sweep(double f_start, double f_end, double interval, int n_steps) {
     for (int i = 0; i < n_steps; ++i) {
         double delta = i / (float)n_steps;
         double t = interval * delta;
         double phase = 2 * M_PI * t * (f_start + (f_end - f_start) * delta / 2);
         while (phase > 2 * M_PI) phase -= 2 * M_PI; // optional
-        printf("%f %f %f", t, phase * 180 / M_PI, 3 * qSin(phase));
+        //printf("%f %f %f", t, phase * 180 / M_PI, 3 * qSin(phase));
+        sweepValues.append(3 * qSin(phase));
     }
 }
 
@@ -494,6 +507,7 @@ unsigned magnitudeCounter = 1;
 void MainWindow::plotMagnitudeResponse()
 {
     int SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
+
     ui->horizontalSlider->setMaximum(SAMPLE_COUNT);
     float* bufferDestination = new float[SAMPLE_COUNT];
     float* bufferSource = new float[SAMPLE_COUNT];
@@ -516,14 +530,18 @@ void MainWindow::plotMagnitudeResponse()
         bufferSource[i] = qSin(2 * M_PI * i * sineFreq / SAMPLE_COUNT);
     }
 
+    qDebug() << "Filtreting... ";
     arm_biquad_cascade_df1_f32(&S, bufferSource, bufferDestination, SAMPLE_COUNT);
+    qDebug() << "Filtreting done.";
 
     for(int i = 0; i < SAMPLE_COUNT; i++)
     {
         Input_spectre[i] = bufferDestination[i];
     }
 
+    qDebug() << "Spectring... ";
     FFTAnalysis(Input_spectre, Output_spectre, spectre_size, spectre_size);
+    qDebug() << "Spectring done.";
 
     double magnitudeMaximum = getMax(Output_spectre, spectre_size);
     magnitudeResponseMaximumes.push_back(magnitudeMaximum);
@@ -539,35 +557,65 @@ void MainWindow::on_pushButtonFilter_clicked()
 {
     if(ui->checkBox_magnutideResponse->isChecked())
     {
-        magnitudeCounter = 1;
         QVector<double> x_all, x_3db, y_3db;
-        const unsigned SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
+        int SAMPLE_COUNT = ui->lineEdit_sampleRate->text().toInt();
 
-        while(magnitudeCounter < SAMPLE_COUNT / 2)
+        sweepValues.clear();
+        sweep(1, SAMPLE_COUNT, 5, SAMPLE_COUNT);
+
+        ui->horizontalSlider->setMaximum(SAMPLE_COUNT);
+
+        unsigned spectre_size = log(SAMPLE_COUNT)/log(2);
+                 spectre_size = pow(2, ++spectre_size);
+
+        float* bufferDestination = new float[SAMPLE_COUNT];
+        float* bufferSource = new float[SAMPLE_COUNT];
+
+        double* Input_spectre = new double[spectre_size];
+        double* Output_spectre = new double[spectre_size];
+
+        for(unsigned i = 0; i < spectre_size; i++)
         {
-            plotMagnitudeResponse();
+            Input_spectre[i] = 0;
+            Output_spectre[i] = 0;
         }
 
-        double magnitudeMax = getMax(magnitudeResponseMaximumes, magnitudeResponseMaximumes.size());
+        for(int i = 0; i < SAMPLE_COUNT; i++)
+        {
+            bufferSource[i] = sweepValues[i];
+        }
 
-        qDebug() << magnitudeMax;
+        arm_biquad_cascade_df1_f32(&S, bufferSource, bufferDestination, SAMPLE_COUNT);
 
-        for(int i = 0; i < magnitudeResponseMaximumes.size(); i++)
+        for(int i = 0; i < SAMPLE_COUNT; i++)
+        {
+            Input_spectre[i] = bufferDestination[i];
+        }
+
+        FFTAnalysis(Input_spectre, Output_spectre, spectre_size, spectre_size);
+
+        for(int i = 0; i < sweepValues.size(); i++)
         {
             x_all.push_back(i+1);
             x_3db.push_back(i);
-            y_3db.push_back(0.707 * magnitudeMax);
+            y_3db.push_back(0.707 * getMax(Output_spectre, spectre_size));
         }
 
         QFont legendFont = font();
         legendFont.setPointSize(8);
 
+        QVector<double> temp;
+        for(int i = 0; i < sweepValues.size(); i++)
+        {
+          temp.append(Output_spectre[i]);
+        }
+
         /* --------------------IMPULSE-------------------- */
         ui->canvas_impulse->clearGraphs();
         ui->canvas_impulse->xAxis->setRange(-100, SAMPLE_COUNT / 2 + 100);
-        ui->canvas_impulse->yAxis->setRange(-0.5, 1);
+        ui->canvas_impulse->yAxis->setRange(getMin(Output_spectre, spectre_size), getMax(Output_spectre, spectre_size));
 
-        ui->canvas_impulse->xAxis->setAutoTickCount(15);
+        ui->canvas_impulse->xAxis->setAutoTickCount(10);
         ui->canvas_impulse->yAxis->setAutoTickCount(20);
 
         ui->canvas_impulse->legend->clear();
@@ -579,7 +627,7 @@ void MainWindow::on_pushButtonFilter_clicked()
         ui->canvas_impulse->yAxis->setLabel("Units");
 
         ui->canvas_impulse->addGraph();
-        ui->canvas_impulse->graph(0)->setData(x_all, magnitudeResponseMaximumes);
+        ui->canvas_impulse->graph(0)->setData(x_all, temp);
         ui->canvas_impulse->graph(0)->setName(QString("Spectrum of sine"));
 
         ui->canvas_impulse->addGraph();
@@ -593,9 +641,13 @@ void MainWindow::on_pushButtonFilter_clicked()
         ui->canvas_impulse->setInteraction(QCP::iRangeZoom, true);
 
         x_all.clear();
-        magnitudeResponseMaximumes.clear();
         x_3db.clear();
         y_3db.clear();
+
+        delete[] Input_spectre;
+        delete[] Output_spectre;
+        delete[] bufferSource;
+        delete[] bufferDestination;
     }
     else
     {
@@ -608,8 +660,6 @@ void MainWindow::on_horizontalSlider_valueChanged(int value)
    ui->lineEdit_sineFreq->setText(QString("%1").arg(QString::number(value)));
    plotGrapics();
 }
-
-
 
 void MainWindow::slotMouseMove(QMouseEvent *event)
 {
@@ -650,5 +700,6 @@ void MainWindow::slotMouseRelease(QMouseEvent *event)
     if(event->button() == Qt::RightButton)
     {
         mouse_hold = false;
+        setCursor(Qt::ArrowCursor);
     }
 }
